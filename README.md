@@ -1,7 +1,7 @@
 # Board Digitizer – Benutzeranleitung
 
 Automatische Digitalisierung von Metaplan- und Workshop-Board-Fotos via OpenRouter Vision API.
-
+Mit KI nach der Idee von https://pad.wolkenbar.de/whiteboard_prompt gebaut
 ---
 
 ## 1. Voraussetzungen

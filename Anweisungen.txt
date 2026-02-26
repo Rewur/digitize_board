@@ -1,0 +1,244 @@
+Du bist ein erfahrener Python-Entwickler mit 20 Jahren Berufserfahrung, 
+spezialisiert auf API-Integration, Bildverarbeitung und Dokumenten-Automatisierung.
+
+Erstelle ein vollständiges, produktionsreifes Python-Skript zur automatischen 
+Digitalisierung von Metaplan- und Workshop-Board-Fotos über die OpenRouter API.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TECHNISCHE RAHMENBEDINGUNGEN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+API:        OpenRouter (https://openrouter.ai/api/v1/chat/completions)
+Auth:       Bearer Token (OPENROUTER_API_KEY als Umgebungsvariable)
+Modell:     Standard: google/gemini-2.0-flash (konfigurierbar)
+            Fallback:  anthropic/claude-sonnet-4-5 (bessere Handschriften)
+Bildformate: JPG, PNG, WEBP (Base64-Encoding)
+Output:     Zwei Markdown-Dateien pro Board:
+            - {boardname}_Raw.md      (Rohdaten-Transkription)
+            - {boardname}_Summary.md  (Executive Summary + Fließtext)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PFLICHT-FEATURES DES SKRIPTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. STRUKTURANALYSE (Schritt 1 des Prozessleitfadens)
+   Der API-Prompt muss das Modell anweisen, VOR der Transkription folgendes 
+   zu analysieren und im Output zu dokumentieren:
+   - Layout-Typ erkennen: Spalten / Cluster / Matrix / Freiform / Mindmap
+   - Farb-Semantik auswerten: Haben Zettelfarben inhaltliche Bedeutung?
+     (Gelb=Fakten, Grün=Ideen, Rot=Kritik o.ä.) → wenn unklar: "generisch"
+   - Priorisierungs-Indikatoren zählen:
+     * Klebepunkte/Votes (nach Farbe differenziert, exakt zählen)
+     * Strichlisten, Ausrufezeichen, Unterstreichungen
+   - Verbindungen dokumentieren: Pfeile/Linien zwischen Zetteln erfassen
+
+2. ROHDATEN-ERFASSUNG (Schritt 2)
+   Generierung der *_Raw.md mit folgenden Regeln:
+   - Spalten  → ## Überschriften
+   - Cluster  → ## Cluster-Titel + verschachtelte Listen
+   - Zettel   → * Listenpunkte (Text 1:1, inkl. Abkürzungen & Tippfehler)
+   - Unleserliches → [unleserlich] oder [?]
+   - Votes/Punkte → in Klammern: (3 rote Punkte, 1 grüner Punkt)
+   - Farben relevant → (Farbe: Rot) als Annotation
+
+3. BEREINIGUNG & ANREICHERUNG (Schritt 3)
+   Zweiter API-Call der die Raw.md als Input nimmt und bereinigt:
+   - Abkürzungen auflösen (nur wenn Kontext eindeutig)
+   - Absteigende Sortierung nach Votes (falls vorhanden)
+   - Farb-Annotations entfernen wenn inhaltlich irrelevant (Noise Reduction)
+   - Klebepunkte auf Zahlenwerte reduzieren: "5 Stimmen"
+
+4. SYNTHESE (Schritt 4)
+   Generierung der *_Summary.md:
+   - Executive Summary (max. 10 Zeilen):
+     * Kernaussage "in a nutshell"
+     * Top 1-2 Themen/Beschlüsse
+     * Größte Hürde oder Kontroverse
+   - Detaillierter Bericht:
+     * Stichpunkte → ausformulierte Sätze
+     * Strukturiert nach Themenbereichen aus Schritt 1
+     * Pfeile/Verbindungen verbalisieren: "Thema A führt zu Thema B"
+
+5. BOARD-KONTEXT-TEMPLATES (vorkonfiguriert, wählbar per Argument)
+   - retrospektive  → "Was lief gut / schlecht / Maßnahmen"
+   - ideensammlung  → "Cluster nach Themen, Punkte = Priorisierung"
+   - metaplan       → "Fragen oben, Antworten als Karten darunter"
+   - 5s_audit       → "Sortieren / Setzen / Säubern / Standardisieren / Selbstdisziplin"
+   - custom         → Freie Kontexteingabe per --context "..."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLI-INTERFACE (argparse)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+python digitize_board.py --image board.jpg
+                         --template retrospektive
+                         --context "Lager-Team, rote Punkte = Votes"
+                         --model google/gemini-2.0-flash
+                         --output ./output/
+                         --confidence  (ergänzt unsichere Stellen mit Konfidenz-Score)
+                         --batch ./ordner_mit_fotos/  (alle Bilder im Ordner verarbeiten)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CODE-QUALITÄTS-ANFORDERUNGEN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Klassen-basiert: BoardDigitizer-Klasse mit klarer Methoden-Trennung
+  * analyze_structure()
+  * transcribe_raw()
+  * clean_and_enrich()
+  * synthesize_summary()
+  * process_board()  (orchestriert alle Schritte)
+
+- Fehlerbehandlung:
+  * API-Timeout mit Retry-Logik (max. 3 Versuche, exponential backoff)
+  * HTTPError mit sprechenden Fehlermeldungen
+  * Fallback auf alternatives Modell bei Fehler
+  * Logging in digitize_board.log
+
+- Config via .env-Datei (python-dotenv):
+  OPENROUTER_API_KEY=sk-or-...
+  DEFAULT_MODEL=google/gemini-2.0-flash
+  FALLBACK_MODEL=anthropic/claude-sonnet-4-5
+  OUTPUT_DIR=./output
+  MAX_TOKENS=4000
+
+- Type Hints durchgehend (Python 3.10+)
+- Docstrings für alle öffentlichen Methoden
+- requirements.txt mitliefern:
+  requests, python-dotenv, pathlib, argparse
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYSTEM-PROMPT FÜR DIE API-CALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Der System-Prompt soll folgenden Analyse-Ablauf erzwingen 
+(exakte Reihenfolge, im Output als Sektionen sichtbar):
+
+"Analysiere dieses Bild.
+1. Beschreibe zuerst die Struktur: Spalten, Cluster oder Matrix?
+2. Haben die Farben der Zettel eine erkennbare Bedeutung?
+3. Gibt es Voting-Punkte? Wenn ja, zähle sie exakt nach Farbe.
+4. Erstelle dann ein Markdown das diese Struktur abbildet.
+   Löse Abkürzungen auf und sortiere nach Relevanz (falls Punkte vorhanden).
+5. Markiere alle unsicheren Erkennungen mit [?] und gib am Ende 
+   eine Gesamteinschätzung deiner Erkennungsqualität ab (0-100%)."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AUSGABE-FORMAT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Liefere:
+1. Das vollständige, lauffähige Python-Skript (digitize_board.py)
+2. Eine .env.example Datei
+3. Eine requirements.txt
+4. Einen kurzen Kommentar-Block am Anfang des Skripts mit:
+   - Kurzbeschreibung
+   - Autor-Platzhalter
+   - Version 1.0.0
+   - Datum (heute)
+
+Das Skript soll direkt ausführbar sein ohne weitere Anpassungen außer 
+dem Setzen des API-Keys in der .env Datei.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BENUTZERANLEITUNG (PFLICHT-BESTANDTEIL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Erstelle im Anschluss an das Skript eine vollständige Benutzeranleitung 
+als eigene Markdown-Datei: README.md
+
+Die Anleitung muss folgende Abschnitte enthalten:
+
+## 1. Voraussetzungen
+   - Python-Version (3.10+)
+   - Benötigte Pakete (mit Installationsbefehl: pip install -r requirements.txt)
+   - OpenRouter-Account und wo der API-Key zu finden ist
+     (https://openrouter.ai/keys)
+   - Welche Modelle Vision-fähig sind und wie man das auf OpenRouter prüft
+
+## 2. Einrichtung (Schritt-für-Schritt)
+   - .env.example zu .env kopieren und befüllen
+   - Welche Felder in der .env ZWINGEND gesetzt werden müssen 
+     (mit Beispielwerten)
+   - Welche Felder optional sind und was ihre Standardwerte sind
+   - Kurztest ob die Einrichtung funktioniert hat:
+     python digitize_board.py --test
+
+## 3. Grundlegende Nutzung
+   - Einfachstes Beispiel (ein Bild, keine Optionen)
+   - Beispiel mit Template-Auswahl
+   - Beispiel mit eigenem Kontext (--context)
+   - Batch-Verarbeitung eines ganzen Ordners
+   - Tabellarische Übersicht ALLER CLI-Parameter mit:
+     * Parameter-Name
+     * Pflicht/Optional
+     * Standardwert
+     * Kurzbeschreibung
+
+## 4. Ausgabe-Dateien verstehen
+   - Was steht in der _Raw.md und wofür ist sie gedacht?
+   - Was steht in der _Summary.md und wie ist sie aufgebaut?
+   - Wo werden die Dateien gespeichert (OUTPUT_DIR)?
+   - Was bedeuten die Annotationen [unleserlich], [?] und (Konfidenz: XX%)?
+
+## 5. Anpassungen & Konfiguration
+   Dieser Abschnitt ist besonders wichtig. Liste ALLE Stellen im Skript,
+   die der Nutzer anpassen kann oder muss, mit:
+   - Zeilennummer im Skript
+   - Was genau angepasst werden kann
+   - Warum man es anpassen würde
+   - Beispiel für die Anpassung
+   
+   Mindestens folgende Punkte abdecken:
+   a) Modell wechseln (wann Gemini, wann Claude, wann GPT-4o?)
+   b) Eigene Board-Templates hinzufügen (BOARD_TEMPLATES-Dictionary)
+   c) System-Prompt erweitern (z.B. für spezifische Abkürzungs-Listen
+      wie interne REWE-Fachbegriffe oder Abteilungskürzel)
+   d) max_tokens erhöhen bei sehr großen/vollen Boards
+   e) Retry-Verhalten anpassen (Anzahl Versuche, Wartezeit)
+   f) Output-Format ändern (z.B. nur Raw, nur Summary, oder beides)
+   g) Sprache des Outputs (Deutsch/Englisch) konfigurieren
+
+## 6. Fehlerbehebung (Troubleshooting)
+   Tabellarische Auflistung häufiger Fehler:
+   | Fehlermeldung / Symptom | Ursache | Lösung |
+   Mindestens abdecken:
+   - API-Key ungültig oder nicht gesetzt
+   - Modell unterstützt kein Vision (kein Bild-Input)
+   - Bild zu groß (Base64-Limit)
+   - Timeout bei großen Boards
+   - Output ist leer oder unvollständig
+   - Unleserliche Handschrift → Tipps für bessere Fotoqualität
+
+## 7. Tipps für beste Ergebnisse
+   - Optimale Foto-Bedingungen (Licht, Winkel, Auflösung)
+   - Wann welches Modell wählen
+   - Wie man den --context Parameter effektiv nutzt um 
+     domänenspezifisches Wissen einzubringen
+     (Beispiel: "Lager-Team Zentrallager, rote Punkte = Priorität,
+      Abkürzungen: ZL=Zentrallager, FS=Frühschicht, SS=Spätschicht")
+   - Umgang mit mehrteiligen Boards (mehrere Fotos eines Boards)
+
+## 8. Beispiel-Workflow (End-to-End)
+   Ein vollständiges, kommentiertes Beispiel von Foto bis fertiger Summary:
+   - Fiktives Board-Foto: "Retro Lager-Team KW12"
+   - Kompletter CLI-Befehl mit allen sinnvollen Optionen
+   - Wie der erwartete Output (_Raw.md und _Summary.md) aussehen würde
+     (als ausformulierte Beispiel-Ausgabe im Markdown-Codeblock)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GESAMTE LIEFERLISTE (ZUSAMMENFASSUNG)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Liefere am Ende exakt diese 4 Dateien, jeweils klar getrennt und 
+mit Dateinamen als Überschrift:
+
+  📄 digitize_board.py   → Das vollständige Python-Skript
+  📄 .env.example        → Konfigurationsvorlage
+  📄 requirements.txt    → Abhängigkeiten
+  📄 README.md           → Vollständige Benutzeranleitung (wie oben beschrieben)
+
+Trenne die Dateien im Output mit:
+--- DATEI: dateiname.py ---
+[Inhalt]
+--- ENDE: dateiname.py ---
